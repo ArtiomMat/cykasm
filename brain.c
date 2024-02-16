@@ -12,10 +12,10 @@
 // How many neurons can a neuron see in one direction
 #define NEURON_SIGHT 4
 // How many bytes we shift the factor sum
-#define FACTOR_SHIFT 4
+#define FACTOR_SHIFT 6
 
 // Decay speed affects how fast neuron firing decays in the brain, if the speed is too slow neurons may get into an equalibrium of firing, and will not escape it, so the faster the speed the more active the brain becomes.
-#define DECAY_SPEED 32
+#define DECAY_SPEED 24
 
 // Writable frame buffer, essentially blitting:
 // https://bbs.archlinux.org/viewtopic.php?id=225741
@@ -92,7 +92,7 @@ int init_window_nodes(int w, int h)
 	xvisual = xvisualinfo.visual;
 
   XSetWindowAttributes attribs = {0};
-	attribs.event_mask = KeyPressMask | KeyReleaseMask | ExposureMask | StructureNotifyMask;
+	attribs.event_mask = KeyPressMask | KeyReleaseMask | ExposureMask | ButtonPressMask | ButtonReleaseMask | StructureNotifyMask | PointerMotionMask;
 	
 	xwnd = XCreateWindow(
 		xdsp,
@@ -235,6 +235,7 @@ void update_img()
 void run_window()
 {
 	XEvent e;
+  static int mouse = 0, mousex = 0, mousey = 0;
 
 	while (XPending(xdsp))
   {
@@ -256,10 +257,38 @@ void run_window()
 			case KeyPress:
       for (int i = 0; i < wnd_w*wnd_h/4; i++)
         set_pixel(rand()%(wnd_h*wnd_w), rand()%2?255:0, 0, 0);
-			case KeyRelease:
+      break;
+			
+      case KeyRelease:
+      break;
+
+      case ButtonPress:
+      if (e.xbutton.button==Button1)
+      {
+        mouse = 1;
+      }
+      else if (e.xbutton.button==Button3)
+      {
+        mouse = 2;
+      }
+      break;
+
+      case ButtonRelease:
+      mouse = 0;
+      break;
+
+      case MotionNotify:
+      mousex = e.xbutton.x;
+      mousey = e.xbutton.y;
 			break;
 		}
 	}
+
+  if (mouse)
+  {
+    printf("%i %i %i\n", mouse, mousex, mousey);
+    set_pixel(xyi(mousex, mousey), mouse==1?255:0, 0, 0);
+  }
 }
 
 static inline int min(int x, int y)
@@ -316,11 +345,11 @@ void run_nodes_to_img()
 
           if (j != i) // Make sure to igore THIS neuron
           {
-            if (fire & get_if_fire(j)) // If both fired strengthen
+            if (fire & (get_fire(j) > 230)) // If both fired strengthen
             {
               nodes[i].factors[k] += nodes[i].factors[k]==255?0:1;
             }
-            else
+            else if (!fire & (get_fire(j) < 32))
             {
               nodes[i].factors[k] -= nodes[i].factors[k]==0?0:1;
             }
@@ -329,12 +358,12 @@ void run_nodes_to_img()
       }
 
       // Going haywire? It will tire. Too quiet? 
-      int fire_history = get_fire(i);
-      if (fire_history < DECAY_SPEED && !fire)
+      int last_fire = get_fire(i);
+      if (last_fire == 0 && !fire)
       {
         nodes[i].bias -= nodes[i].bias==0?0:1;
       }
-      else if (fire_history >= 255-DECAY_SPEED && fire)
+      else if (last_fire >= 100 && fire)
       {
         nodes[i].bias += nodes[i].bias==255?0:1;
       }
@@ -370,8 +399,8 @@ int main()
   for (unsigned i = 0; 1; i++)
   {
     decay_img();
-    run_window();
     run_nodes_to_img();
+    run_window();
     update_img();
   }
 }
