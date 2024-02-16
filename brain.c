@@ -15,7 +15,7 @@
 #define FACTOR_SHIFT 4
 
 // Decay speed affects how fast neuron firing decays in the brain, if the speed is too slow neurons may get into an equalibrium of firing, and will not escape it, so the faster the speed the more active the brain becomes.
-#define DECAY_SPEED 6
+#define DECAY_SPEED 32
 
 // Writable frame buffer, essentially blitting:
 // https://bbs.archlinux.org/viewtopic.php?id=225741
@@ -209,6 +209,12 @@ int get_fire(int i)
   return ximg_data[i*4+0] + ximg_data[i*4+1] + ximg_data[i*4+2];
 }
 
+// Returns if it fired, meaning >=255
+int get_if_fire(int i)
+{
+  return (ximg_data[i*4+0] + ximg_data[i*4+1] + ximg_data[i*4+2]) >= 255;
+}
+
 // In monochrome
 void update_img()
 {
@@ -248,7 +254,7 @@ void run_window()
 			break;
 			
 			case KeyPress:
-      for (int i = 0; i < 10000; i++)
+      for (int i = 0; i < wnd_w*wnd_h/4; i++)
         set_pixel(rand()%(wnd_h*wnd_w), rand()%2?255:0, 0, 0);
 			case KeyRelease:
 			break;
@@ -285,7 +291,7 @@ void run_nodes_to_img()
 
           if (j != i && get_fire(j)) // Make sure to igore THIS neuron
           {
-            sum += nodes[i].factors[k];
+            sum+=nodes[i].factors[k];
           }
         }
       }
@@ -310,14 +316,14 @@ void run_nodes_to_img()
 
           if (j != i) // Make sure to igore THIS neuron
           {
-            // if (fire & get_fire(j)) // If both fired strengthen
-            // {
-            //   nodes[i].factors[k] += nodes[i].factors[k]==127?0:1;
-            // }
-            // else
-            // {
-            //   nodes[i].factors[k] -= nodes[i].factors[k]==-128?0:1;
-            // }
+            if (fire & get_if_fire(j)) // If both fired strengthen
+            {
+              nodes[i].factors[k] += nodes[i].factors[k]==255?0:1;
+            }
+            else
+            {
+              nodes[i].factors[k] -= nodes[i].factors[k]==0?0:1;
+            }
           }
         }
       }
@@ -346,7 +352,7 @@ int main()
 {
   srand(time(NULL));
 
-  init_window_nodes(256, 128);
+  init_window_nodes(256, 256);
 
   for (int i = 0; i < wnd_w*wnd_h; i++)
   {
