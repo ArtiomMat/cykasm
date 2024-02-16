@@ -1,10 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/**
+ * Artiom's Assembly Assembler
+ * This is nothing more than a weird assembler for a nonexisting architecture.
+ * I am also confident that the way I made the device communication is either impractically slow or perhaps even impossible with hardware, but atleast it's fun :).
+*/
+
 #define MEGABYTE (1<<20)
+
+// The second page
+#define CMDS_START_PTR ((unsigned long long)memory + 1<<16)
 
 enum
 {
+  CMD_ZE, // Zero, end of commands
   CMD_MO, // Move
 
   CMD_NO, // Not
@@ -34,7 +44,7 @@ enum
   CMD_PU, // Push
   CMD_PO, // Pop
 
-  CMD_DE, // Puts into an argument if how many bytes the device wants to input
+  CMD_DE, // Puts into an argument how many bytes the device wants to input
   CMD_IN, // Input from device
   CMD_OU, // Output to device
 
@@ -93,6 +103,29 @@ typedef struct
   } args[2];
 } cmd_t;
 
+typedef struct
+{
+  /**
+   * Considered a register. A "page" is a 2^16 memory buffer 
+  */
+  unsigned short page;
+  /**
+   * 'Considered' a register. Pointer to the command in the `memory` buffer.
+   * Note, in reality to be consistent it would be split into cmd_page and cmd_ref, but that would be slower, and the code never accesses the cmd register.
+  */
+  cmd_t* cmd_p;
+  /**
+   * An array of the general registers that the code can access.
+  */
+  union
+  {
+    signed short s;
+    unsigned short u;
+  } regs[10];
+} cpu_t;
+
+cpu_t cpu = {0};
+
 /**
  * Just args[1]
 */
@@ -118,23 +151,6 @@ typedef struct lbl
 */
 lbl_t* labels = 0;
 
-/**
- * Considered a register. A "page" is a 2^16 memory buffer 
-*/
-unsigned short page = 0;
-/**
- * Considered a register. Index of the next command in `memory`.
- * Note, in reality to be consistent it would be split into cmd_page and cmd_ref, but that would be slower, and the code never accesses the cmd register.
-*/
-unsigned int cmd_i;
-/**
- * An array of the general registers that the code can access.
-*/
-union
-{
-  signed short s;
-  unsigned short u;
-} regs[10] = {0};
 
 short memory[16*MEGABYTE] __attribute__ ((aligned (8))) = {0};
 
@@ -144,7 +160,7 @@ short memory[16*MEGABYTE] __attribute__ ((aligned (8))) = {0};
 short*
 ref_to_ptr(unsigned short ref)
 {
-  return &(memory[(unsigned)ref + ((unsigned)page << 16)]);
+  return &(memory[(unsigned)ref + ((unsigned)cpu.page << 16)]);
 }
 
 int
@@ -308,7 +324,7 @@ err(char* str)
 int
 compile_arg(const char* start, struct cmd_arg* p)
 {
-  if (start[0] == '@') // If the argument represents a reference(memory location)
+  if (start[0] == '?') // If the argument represents a reference(memory location)
   {
     p->is_ref = 1;
     start++;
@@ -323,7 +339,7 @@ compile_arg(const char* start, struct cmd_arg* p)
     }
     p->is_reg = 1;
     p->value = start[1]-'0';
-    if (p->value < 0 || p->value > sizeof(regs)/sizeof(regs[0]))
+    if (p->value < 0 || p->value > sizeof(cpu.regs)/sizeof(cpu.regs[0]))
     {
       err("Invalid register");
       return 0;
@@ -474,7 +490,7 @@ skip_line_chars(const char* str)
 int
 precompile_labels(const char* str)
 {
-  cmd_t* cmd_p = (cmd_t*)memory; // Pointer of the current command we are writing to
+  cmd_t* cmd_p = CMDS_START_PTR; // Pointer of the current command we are writing to
   
   // Firstly, we pre-compile the labels
   while (str[0])
@@ -550,7 +566,7 @@ precompile_labels(const char* str)
 int
 compile_and_push(const char* str)
 {
-  cmd_t* cmd_p = (cmd_t*)memory; // Pointer of the current command we are writing to
+  cmd_t* cmd_p = CMDS_START_PTR; // Pointer of the current command we are writing to
 
   if (!precompile_labels(str))
   {
@@ -592,7 +608,92 @@ compile_and_push(const char* str)
       cmd_p++;
     }
   }
+
+  // Now cleanup all the compilation shit
+  for (lbl_t* l = labels; l;)
+  {
+    lbl_t* fl = l;
+    l = fl->next;
+    free(fl);
+  }
+
   return 1;
+}
+
+short
+evaluate_get(struct cmd_arg* arg)
+{
+  short value;
+  if (arg->is_reg)
+  {
+    value = cpu.regs[arg->value].s;
+  }
+  else
+  {
+    value = arg->value;
+  }
+
+  if (arg->is_ref) // If there is a reference flag then we actually take the value in memory!
+  {
+    value = *ref_to_ptr(value);
+  }
+
+  return value;
+}
+
+void
+evaluate_set(struct cmd_arg* arg, short x)
+{
+  short* ptr;
+  if (arg->is_reg)
+  {
+    ptr = &cpu.regs[arg->value];
+
+    if (arg->is_ref) // If it's a reference we do the same procedure that we do for regular numbers
+    {
+      goto _is_ref;
+    }
+    else // If not then we just set the register value
+    {
+      *ptr = x;
+    }
+  }
+  else
+  {
+    ptr = arg->value;
+
+    if (arg->is_ref) // If there is a reference flag then we actually take the value in memory!
+    {
+      _is_ref:
+      ptr = *ref_to_ptr(*ptr);
+    }
+
+    *ref_to_ptr(*ptr) = x;
+  }
+
+}
+
+/**
+ * Just runs the memory!
+*/
+void
+run()
+{
+  cpu.cmd_p = CMDS_START_PTR;
+  
+  for (cmd_t* cmd_p = (cmd_t*) memory; cmd_p->type; cmd_p++)
+  {
+    switch (cmd_p->type)
+    {
+      case CMD_MO:
+      evaluate_set(&cmd_p->args[0], evaluate_get(&cmd_p->args[1]));
+      printf("%d\n", cpu.regs[1].s);
+      break;
+
+      case CMD_ZE:
+    }
+  }
+  return 0;
 }
 
 int
@@ -607,6 +708,12 @@ main(int args_n, char** args)
   fp = args[1];
 
   FILE* f = fopen(fp, "rb");
+  if (!f)
+  {
+    puts("File not found.");
+    return 1;
+  }
+
   char* fstr = 0;
 
   // Setup fstr
@@ -622,8 +729,12 @@ main(int args_n, char** args)
     fstr = clean_code(str);
     free(str);
   }
+
   // puts(fstr);
-  compile_and_push(fstr);
+  if (!compile_and_push(fstr))
+    return 1;
+  
+
 
   return 0;
 }

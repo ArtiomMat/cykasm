@@ -1,0 +1,59 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+class ram
+{
+  public:
+  // Says "rami"
+  int const signature = 0x72616d69;
+
+  void* buffer;
+
+  ram()
+  {
+
+  }
+
+  ~ram()
+  {
+
+  }
+
+  /**
+   * Prevents memory leaks by being freed automatically at the end of the scope.
+   * Prevents dangling pointers by keeping track of the state of the buffer.
+   * Not intended for resource limited system use, since it packs 16 bytes of data, and also performs (while as fast as possible, yet still existant) check operations to prevent issues with normal pointers.
+  */
+  template <typename t>
+  class buf
+  {
+    protected:
+    unsigned int n;
+
+    public:
+    bool alive;
+    t* ptr;
+
+    /**
+     * Single element buffer, has all the benefits of the `buf` type.
+    */
+    buf()
+    {
+      
+    }
+
+    ~buf()
+    {
+
+    }
+
+
+  };
+
+};
+
+int main()
+{
+  ram();
+  ram::array<int> array;
+}
