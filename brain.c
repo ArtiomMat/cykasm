@@ -10,12 +10,12 @@
 #include <X11/keysym.h>
 
 // How many neurons can a neuron see in one direction
-#define NEURON_SIGHT 8
+#define NEURON_SIGHT 4
 // How many bytes we shift the factor sum
 #define FACTOR_SHIFT 4
 
 // Decay speed affects how fast neuron firing decays in the brain, if the speed is too slow neurons may get into an equalibrium of firing, and will not escape it, so the faster the speed the more active the brain becomes.
-#define DECAY_SPEED 32
+#define DECAY_SPEED 6
 
 // Writable frame buffer, essentially blitting:
 // https://bbs.archlinux.org/viewtopic.php?id=225741
@@ -203,7 +203,7 @@ void decay_img()
   }
 }
 
-// Returns if a pixel is fired or not!
+// Returns how fired the pixel is, adds up channels, so make sure that just one channel is 1
 int get_fire(int i)
 {
   return ximg_data[i*4+0] + ximg_data[i*4+1] + ximg_data[i*4+2];
@@ -256,11 +256,11 @@ void run_window()
 	}
 }
 
-static inline unsigned min(unsigned x, unsigned y)
+static inline int min(int x, int y)
 {
   return x<y?x:y;
 }
-static inline unsigned max(unsigned x, unsigned y)
+static inline int max(int x, int y)
 {
   return x>y?x:y;
 }
@@ -270,35 +270,71 @@ void run_nodes_to_img()
   int i = 0;
   for (int y = 0; y < wnd_h; y++)
   {
-    // We need a j and a k to access both the real index in the ximg and the relative index in factors!
-    int k = 0;
     for (int x = 0; x < wnd_w; x++, i++)
     {
       // Run the node
       long sum = 0;
 
+      // We need a j and a k to access both the real index in the ximg and the relative index in factors!
+      int k = 0;
       for (int v = max(y-NEURON_SIGHT, 0); v < min(y+NEURON_SIGHT+1, wnd_h); v++)
       {
         for (int u = max(x-NEURON_SIGHT, 0); u < min(x+NEURON_SIGHT+1, wnd_w); u++, k++)
         {
           int j = xyi(u, v);
 
-          // printf("(%d,%d): %d\n",x,y, get_fire(j));
           if (j != i && get_fire(j)) // Make sure to igore THIS neuron
           {
             sum += nodes[i].factors[k];
           }
         }
       }
-      if (sum & (1<<(sizeof(int)*8-1)))
+      if (sum & (1<<(sizeof(int)*8-1))) // If sum is negative
       {
-        continue;
+        sum = 0;
       }
-      sum >>= FACTOR_SHIFT;
-        // printf("%d\n", sum);
-      // if (sum)
+      else
+      {
+        sum >>= FACTOR_SHIFT;
+      }
+
+      int fire = sum > (unsigned)nodes[i].bias;
+
+      // Fire together? Wire together. Out of sync? Synapses shrink!
+      k = 0;
+      for (int v = max(y-NEURON_SIGHT, 0); v < min(y+NEURON_SIGHT+1, wnd_h); v++)
+      {
+        for (int u = max(x-NEURON_SIGHT, 0); u < min(x+NEURON_SIGHT+1, wnd_w); u++, k++)
+        {
+          int j = xyi(u, v);
+
+          if (j != i) // Make sure to igore THIS neuron
+          {
+            // if (fire & get_fire(j)) // If both fired strengthen
+            // {
+            //   nodes[i].factors[k] += nodes[i].factors[k]==127?0:1;
+            // }
+            // else
+            // {
+            //   nodes[i].factors[k] -= nodes[i].factors[k]==-128?0:1;
+            // }
+          }
+        }
+      }
+
+      // Going haywire? It will tire. Too quiet? 
+      int fire_history = get_fire(i);
+      if (fire_history < DECAY_SPEED && !fire)
+      {
+        nodes[i].bias -= nodes[i].bias==0?0:1;
+      }
+      else if (fire_history >= 255-DECAY_SPEED && fire)
+      {
+        nodes[i].bias += nodes[i].bias==255?0:1;
+      }
+
       // Put it on the image
-      if (sum > (unsigned)nodes[i].bias)
+      if (fire)
       {
         set_pixel(i, 255, 0, 0);
       }
@@ -310,7 +346,7 @@ int main()
 {
   srand(time(NULL));
 
-  init_window_nodes(260, 256);
+  init_window_nodes(256, 128);
 
   for (int i = 0; i < wnd_w*wnd_h; i++)
   {
@@ -324,11 +360,12 @@ int main()
   {
     ximg_data[i+2] = rand();
   }
-  while(1)
+  
+  for (unsigned i = 0; 1; i++)
   {
     decay_img();
-    update_img();
     run_window();
     run_nodes_to_img();
+    update_img();
   }
 }
