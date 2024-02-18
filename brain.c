@@ -12,18 +12,15 @@
 #include <time.h>
 
 // How many neurons can a neuron see in one direction
-#define NEURON_SIGHT 8
+#define NEURON_SIGHT 3
 // How many bytes we shift the factor sum
-#define FACTOR_SHIFT 6
+#define FACTOR_SHIFT 0
 
 // Decay speed affects how fast neuron firing decays in the brain, if the speed is too slow neurons may get into an equalibrium of firing, and will not escape it, so the faster the speed the more active the brain becomes.
-#define DECAY_SPEED 32
+#define DECAY_SPEED 5
 
-#define WND_W 256
-#define WND_H 128
-
-// 0=blue, 1=green, 2=red
-#define COLOR 2
+#define WND_W 300
+#define WND_H 100
 
 // Writable frame buffer, essentially blitting:
 // https://bbs.archlinux.org/viewtopic.php?id=225741
@@ -44,10 +41,10 @@ unsigned char* ximg_data;
 typedef struct
 {
   char factors[(NEURON_SIGHT*2+1)*(NEURON_SIGHT*2+1)]; // Making a rectangle around the neuron
-  u_char bias;
+  u_char threshold;
 } node_t;
 
-node_t* nodes;
+node_t nodes[WND_W*WND_H];
 
 void free_window()
 {
@@ -58,7 +55,6 @@ void free_window()
 	ximg = 0;
 
 	XCloseDisplay(xdsp);
-  free(nodes);
 }
 
 int x_error_handler(Display * d, XErrorEvent * e)
@@ -309,8 +305,29 @@ void run_window()
 			break;
 			
 			case KeyPress:
-      for (int i = 0; i < WND_W*WND_H/4; i++)
-        set_pixel(rand()%(WND_H*WND_W), rand()%2?255:0, 0, 0);
+      for (int i = 0; i < WND_W*WND_H; i++)
+      {
+        int r = rand()%10;
+        if (r <= 3)
+        {
+          if (r == 3)
+          {
+            set_pixel(i, 255, 255, 255);
+          }
+          else if (r == 2)
+          {
+            set_pixel(i, 255, 255, 0);
+          }
+          else if (r == 1)
+          {
+            set_pixel(i, 255, 0, 0);
+          }
+          else if (r == 0)
+          {
+            set_pixel(i, 0, 0, 0);
+          }
+        }
+      }
       break;
 			
       case KeyRelease:
@@ -363,15 +380,12 @@ static inline int max(int x, int y)
 
 void init_nodes()
 {
-  nodes = malloc(WND_W*WND_H*sizeof(node_t));
-
-
   for (int i = 0; i < WND_W*WND_H; i++)
   {
-    nodes[i].bias = rand();
+    nodes[i].threshold = rand();
     for (int j = 0; j < sizeof(nodes[0].factors)/sizeof(nodes[0].factors[0]); j++)
     {
-      nodes[i].factors[j] = rand();
+      nodes[i].factors[j] = rand()%11 - 5;
     }
   }
   for (int i = 0; i < WND_W*WND_H; i++)
@@ -403,7 +417,7 @@ void run_nodes_to_img(int seed)
 
           if (j != i && get_if_fire(j)) // Make sure to igore THIS neuron
           {
-            sum+=nodes[i].factors[k];
+            sum += nodes[i].factors[k];
           }
         }
       }
@@ -418,9 +432,9 @@ void run_nodes_to_img(int seed)
       }
 
       int did_fire;
-      did_fire = sum > (long)nodes[i].bias;
+      did_fire = sum > (long)nodes[i].threshold;
 
-      // Fire together? Wire together. Out of sync? Synapses shrink!
+      // Law 1: Neuron increases connection with in sync neurons, and descreases with out of sync neurons.
       k = 0;
       for (int v = y-NEURON_SIGHT; v <= y+NEURON_SIGHT; v++)
       {
@@ -430,37 +444,37 @@ void run_nodes_to_img(int seed)
 
           if (j != i) // Make sure to igore THIS neuron
           {
-            if (did_fire & (get_fire(j) > 220)) // If both fired strengthen
+            if (did_fire == get_if_fire(j)) // If both fired strengthen
             {
-              nodes[i].factors[k] += nodes[i].factors[k]==255?0:1;
+              nodes[i].factors[k] += nodes[i].factors[k]>=5?0:1;
             }
-            else if (!did_fire & (get_fire(j) < 220))
+            else
             {
-              nodes[i].factors[k] -= nodes[i].factors[k]==0?0:1;
+              nodes[i].factors[k] -= nodes[i].factors[k]<=-5?0:1;
             }
           }
         }
       }
       
-      // Going haywire? It will tire. Too quiet? 
-      int last_fire = get_fire(i);
-      if (last_fire <= 0 && !did_fire)
-      {
-        nodes[i].bias -= nodes[i].bias==0?0:1;
-      }
-      else if (last_fire >= 128 && did_fire)
-      {
-        nodes[i].bias += nodes[i].bias==255?0:1;
-      }
+      // Law 2: Neuron maintains a stable firing rate by adjusting its threshold
+      // int last_fire = get_fire(i);
+      // if (last_fire <= 255-DECAY_SPEED*10 && !did_fire)
+      // {
+      //   nodes[i].threshold -= nodes[i].threshold==0?0:1;
+      // }
+      // else if (last_fire > 255-DECAY_SPEED*10 && did_fire)
+      // {
+      //   nodes[i].threshold += nodes[i].threshold==255?0:1;
+      // }
 
       // Put it on the image
       if (did_fire)
       {
         fire(i);
       }
-      if (i == 1)
+      if (i == 100)
       {
-        printf("%d\n", nodes[i].bias);
+        printf("RANDOM FACTOR: %d\nTHERSHOLD: %d\n", nodes[i].factors[rand()%16], nodes[i].threshold);
       }
     }
   }
